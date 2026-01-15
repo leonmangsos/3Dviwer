@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鹅伴小车 3D 模型查看器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            height: 100vh;
+            user-select: none;
+        }
+
+        .container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            color: white;
+            min-width: 200px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        .control-group button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            font-size: 12px;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .control-group button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .control-group button.active {
+            background: rgba(76, 175, 80, 0.6);
+            border-color: rgba(76, 175, 80, 0.8);
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            margin-top: 5px;
+            accent-color: #4CAF50;
+        }
+
+        .file-upload {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            text-align: center;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 40px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            max-width: 500px;
+        }
+
+        .file-upload h2 {
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .file-upload p {
+            margin-bottom: 20px;
+            opacity: 0.8;
+            line-height: 1.5;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-input-button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+
+        .file-input-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        .demo-button {
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+        }
+
+        .demo-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            text-align: center;
+            color: white;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            text-align: center;
+            color: white;
+            background: rgba(255, 0, 0, 0.2);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 400px;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100vh;
+        }
+
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 12px;
+            line-height: 1.5;
+            max-width: 300px;
+        }
+
+        .instructions h3 {
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .instructions ul {
+            list-style: none;
+        }
+
+        .instructions li {
+            margin-bottom: 5px;
+        }
+
+        .instructions li:before {
+            content: "• ";
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .drag-drop-area {
+            border: 2px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .drag-drop-area.dragover {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .zoom-info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            color: white;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .zoom-info.show {
+            opacity: 1;
+        }
+
+        .axis-controls {
+            position: absolute;
+            top: 50%;
+            left: 20px;
+            transform: translateY(-50%);
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            color: white;
+            min-width: 140px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .axis-controls h3 {
+            margin-bottom: 15px;
+            font-size: 14px;
+            text-align: center;
+            color: #4CAF50;
+        }
+
+        .axis-group {
+            margin-bottom: 15px;
+        }
+
+        .axis-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .axis-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .axis-buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;  /* 增加按钮间距 */
+        }
+
+        .axis-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 15px;  /* 增加按钮大小 */
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;     /* 增加字体大小 */
+            transition: all 0.3s ease;
+            flex: 1;
+            text-align: center;
+            min-height: 44px;    /* 确保触摸友好的最小高度 */
+        }
+
+        .axis-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .axis-btn.x-axis {
+            border-color: rgba(255, 99, 99, 0.5);
+            background: rgba(255, 99, 99, 0.2);
+        }
+
+        .axis-btn.x-axis:hover {
+            background: rgba(255, 99, 99, 0.4);
+        }
+
+        .axis-btn.y-axis {
+            border-color: rgba(99, 255, 99, 0.5);
+            background: rgba(99, 255, 99, 0.2);
+        }
+
+        .axis-btn.y-axis:hover {
+            background: rgba(99, 255, 99, 0.4);
+        }
+
+        .axis-btn.z-axis {
+            border-color: rgba(99, 99, 255, 0.5);
+            background: rgba(99, 99, 255, 0.2);
+        }
+
+        .axis-btn.z-axis:hover {
+            background: rgba(99, 99, 255, 0.4);
+        }
+
+        .rotation-speed {
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        .rotation-speed label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
+        .rotation-speed input[type="range"] {
+            width: 100%;
+            accent-color: #4CAF50;
+        }
+
+        .rotation-speed span {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            .controls {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                top: auto;
+                min-width: 150px;
+                max-height: 60vh;
+            }
+            
+            .axis-controls {
+                left: 10px;
+                min-width: 100px;
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 20px;
+            }
+            
+            .instructions {
+                display: none;
+            }
+            
+            .file-upload {
+                padding: 20px;
+                max-width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚗 鹅伴小车 3D 模型</h1>
+            <p>按键操控 | 移动端优化 | 6自由度控制</p>
+        </div>
+
+        <div class="axis-controls hidden" id="axis-controls">
+            <h3>🎯 模型控制</h3>
+            
+            <!-- 旋转控制 -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #FFD700; margin-bottom: 10px; font-size: 12px;">🔄 旋转控制</h4>
+                
+                <div class="axis-group">
+                    <span class="axis-label">X轴 (红色)</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn x-axis" onclick="rotateModel('x', -1)">←</button>
+                        <button class="axis-btn x-axis" onclick="rotateModel('x', 1)">→</button>
+                    </div>
+                </div>
+                
+                <div class="axis-group">
+                    <span class="axis-label">Y轴 (绿色)</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn y-axis" onclick="rotateModel('y', -1)">↓</button>
+                        <button class="axis-btn y-axis" onclick="rotateModel('y', 1)">↑</button>
+                    </div>
+                </div>
+                
+                <div class="axis-group">
+                    <span class="axis-label">Z轴 (蓝色)</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn z-axis" onclick="rotateModel('z', -1)">⟲</button>
+                        <button class="axis-btn z-axis" onclick="rotateModel('z', 1)">⟳</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 位置控制 -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #00CED1; margin-bottom: 10px; font-size: 12px;">📍 位置控制</h4>
+                
+                <div class="axis-group">
+                    <span class="axis-label">左右移动</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('x', -1)">←</button>
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('x', 1)">→</button>
+                    </div>
+                </div>
+                
+                <div class="axis-group">
+                    <span class="axis-label">上下移动</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('y', -1)">↓</button>
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('y', 1)">↑</button>
+                    </div>
+                </div>
+                
+                <div class="axis-group">
+                    <span class="axis-label">前后移动</span>
+                    <div class="axis-buttons">
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('z', -1)">⬇</button>
+                        <button class="axis-btn" style="background: rgba(255, 165, 0, 0.2); border-color: rgba(255, 165, 0, 0.5);" onclick="moveModel('z', 1)">⬆</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="rotation-speed">
+                <label>移动/旋转速度</label>
+                <input type="range" id="rotationSpeed" min="0.5" max="5" step="0.5" value="2" onchange="updateRotationSpeed()">
+                <span id="speedValue">2x</span>
+            </div>
+        </div>
+
+        <div class="controls hidden" id="controls">
+            <div class="control-group">
+                <label>文件操作</label>
+                <button onclick="showFileUpload()">📂 加载新模型</button>
+                <button onclick="resetCamera()">🔄 重置视角</button>
+                <button onclick="toggleWireframe()" id="wireframeBtn">📐 线框模式</button>
+                <button onclick="toggleAxisControls()" id="axisControlBtn">🎯 模型控制</button>
+            </div>
+            
+            <div class="control-group">
+                <label>缩放控制</label>
+                <button onclick="zoomIn()">🔍 放大</button>
+                <button onclick="zoomOut()">🔍 缩小</button>
+                <button onclick="fitToScreen()">📏 适应屏幕</button>
+                <button onclick="resetModelRotation()">🔄 重置位置</button>
+            </div>
+            
+            <div class="control-group">
+                <label>光照强度</label>
+                <input type="range" id="lightIntensity" min="0" max="3" step="0.1" value="1.5" onchange="updateLighting()">
+                <span id="lightValue">1.5</span>
+            </div>
+            
+            <div class="control-group">
+                <label>模型颜色</label>
+                <button onclick="changeColor('#ff6b6b')" style="background: #ff6b6b;">红色</button>
+                <button onclick="changeColor('#4ecdc4')" style="background: #4ecdc4;">青色</button>
+                <button onclick="changeColor('#45b7d1')" style="background: #45b7d1;">蓝色</button>
+                <button onclick="changeColor('#96ceb4')" style="background: #96ceb4;">绿色</button>
+                <button onclick="changeColor('#ffeaa7')" style="background: #ffeaa7;">黄色</button>
+                <button onclick="changeColor('#dda0dd')" style="background: #dda0dd;">紫色</button>
+            </div>
+            
+            <div class="control-group">
+                <label>背景主题</label>
+                <button onclick="changeBackground('gradient')" id="bgGradient" class="active">渐变</button>
+                <button onclick="changeBackground('dark')" id="bgDark">深色</button>
+                <button onclick="changeBackground('light')" id="bgLight">浅色</button>
+            </div>
+        </div>
+
+        <div id="file-upload" class="file-upload hidden">
+            <h2>📁 选择其他 3D 模型文件</h2>
+            <p>支持 STL 格式的 3D 模型文件<br>
+            文件大小建议不超过 50MB</p>
+            
+            <div class="file-input-wrapper">
+                <input type="file" id="fileInput" class="file-input" accept=".stl" onchange="handleFileSelect(event)">
+                <button class="file-input-button">📂 选择文件</button>
+            </div>
+            
+            <div class="drag-drop-area" id="dragDropArea">
+                <p>或者将 STL 文件拖拽到这里</p>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <p style="font-size: 12px; opacity: 0.7;">
+                    GitHub Pages 部署版本 | 
+                    <a href="https://github.com" target="_blank" style="color: #4CAF50;">查看源码</a>
+                </p>
+            </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="loading-spinner"></div>
+            <p>正在加载 3D 模型...</p>
+        </div>
+
+        <div id="error" class="error hidden">
+            <h3>❌ 加载失败</h3>
+            <p id="error-message">无法加载 3D 模型文件，请检查文件格式是否正确。</p>
+            <button class="demo-button" onclick="showFileUpload()" style="margin-top: 15px;">重新选择文件</button>
+        </div>
+
+        <div id="canvas-container"></div>
+
+        <div class="instructions hidden" id="instructions">
+            <h3>🎮 推荐：按键操控</h3>
+            <ul>
+                <li><strong>方向键：移动模型位置</strong></li>
+                <li><strong>Q/E/A/D/Z/C：旋转控制</strong></li>
+                <li>鼠标左键拖拽：旋转视角</li>
+                <li>鼠标右键拖拽：平移视角</li>
+                <li>鼠标滚轮：缩放模型</li>
+                <li>双击：快速适应屏幕</li>
+                <li>T键：显示/隐藏模型控制</li>
+                <li>Shift+R：重置位置和旋转</li>
+            </ul>
+        </div>
+
+        <div id="zoom-info" class="zoom-info">
+            缩放: <span id="zoom-level">100%</span>
+        </div>
+    </div>
+
+    <!-- Three.js 库 - 使用稳定版本 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- STL 加载器 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <!-- 轨道控制器 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // 全局变量
+        let scene, camera, renderer, controls;
+        let model, originalMaterial;
+        let ambientLight, directionalLight;
+        let isWireframe = false;
+        let modelBoundingBox, modelSize, modelCenter;
+        let initialCameraDistance = 10;
+        let zoomLevel = 1;
+        let rotationSpeed = 2;
+        let isAxisControlsVisible = true;  // 默认显示控制面板
+
+        // 初始化 3D 场景
+        function init() {
+            // 创建场景
+            scene = new THREE.Scene();
+            
+            // 创建相机 - 优化视角参数
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 10000);
+            camera.position.set(5, 5, 5);
+            
+            // 创建渲染器 - 优化渲染参数
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true, 
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x000000, 0);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // 将渲染器添加到页面
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // 创建轨道控制器 - 优化缩放参数
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = true;  // 启用屏幕空间平移
+            controls.enablePan = true;           // 确保平移功能启用
+            controls.minDistance = 0.1;
+            controls.maxDistance = 1000;
+            controls.maxPolarAngle = Math.PI;
+            
+            // 优化缩放参数
+            controls.zoomSpeed = 1.2;
+            controls.panSpeed = 1.0;             // 增加平移速度
+            controls.rotateSpeed = 0.5;
+            
+            // 监听控制器变化
+            controls.addEventListener('change', updateZoomInfo);
+            
+            // 设置光照
+            setupLighting();
+            
+            // 监听窗口大小变化
+            window.addEventListener('resize', onWindowResize, false);
+            
+            // 设置拖拽功能
+            setupDragDrop();
+            
+            // 添加双击事件
+            renderer.domElement.addEventListener('dblclick', fitToScreen);
+            
+            // 直接加载默认模型
+            loadDefaultModel();
+            
+            // 开始渲染循环
+            animate();
+        }
+
+        // 设置光照 - 优化光照效果
+        function setupLighting() {
+            // 环境光
+            ambientLight = new THREE.AmbientLight(0x404040, 0.8);
+            scene.add(ambientLight);
+            
+            // 主方向光
+            directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 500;
+            scene.add(directionalLight);
+            
+            // 补充光源
+            const light2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            light2.position.set(-10, -10, -5);
+            scene.add(light2);
+            
+            // 顶部光源
+            const light3 = new THREE.DirectionalLight(0xffffff, 0.6);
+            light3.position.set(0, 20, 0);
+            scene.add(light3);
+        }
+
+        // 设置拖拽功能
+        function setupDragDrop() {
+            const dragDropArea = document.getElementById('dragDropArea');
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dragDropArea.addEventListener(eventName, preventDefaults, false);
+                document.body.addEventListener(eventName, preventDefaults, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dragDropArea.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dragDropArea.addEventListener(eventName, unhighlight, false);
+            });
+
+            dragDropArea.addEventListener('drop', handleDrop, false);
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            function highlight(e) {
+                dragDropArea.classList.add('dragover');
+            }
+
+            function unhighlight(e) {
+                dragDropArea.classList.remove('dragover');
+            }
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                if (files.length > 0) {
+                    loadSTLFromFile(files[0]);
+                }
+            }
+        }
+
+        // 处理文件选择
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                loadSTLFromFile(file);
+            }
+        }
+
+        // 从文件加载 STL 模型
+        function loadSTLFromFile(file) {
+            if (!file.name.toLowerCase().endsWith('.stl')) {
+                showError('请选择 STL 格式的文件！');
+                return;
+            }
+
+            if (file.size > 50 * 1024 * 1024) { // 50MB 限制
+                showError('文件太大！请选择小于 50MB 的文件。');
+                return;
+            }
+
+            showLoading();
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                loadSTLFromArrayBuffer(arrayBuffer);
+            };
+            reader.onerror = function() {
+                showError('文件读取失败，请重试！');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // 从 ArrayBuffer 加载 STL
+        function loadSTLFromArrayBuffer(arrayBuffer) {
+            const loader = new THREE.STLLoader();
+            
+            try {
+                const geometry = loader.parse(arrayBuffer);
+                createModelFromGeometry(geometry);
+            } catch (error) {
+                console.error('STL 解析失败:', error);
+                showError('STL 文件格式错误，无法解析！');
+            }
+        }
+
+        // 加载默认模型
+        function loadDefaultModel() {
+            showLoading();
+            
+            const loader = new THREE.STLLoader();
+            loader.load(
+                '鹅伴小车.stl',
+                function (geometry) {
+                    createModelFromGeometry(geometry);
+                },
+                function (progress) {
+                    console.log('加载进度:', (progress.loaded / progress.total * 100) + '%');
+                },
+                function (error) {
+                    console.error('默认模型加载失败:', error);
+                    // 如果默认模型加载失败，显示文件上传界面
+                    showFileUpload();
+                }
+            );
+        }
+
+        // 从几何体创建模型 - 优化缩放逻辑
+        function createModelFromGeometry(geometry) {
+            // 清除现有模型
+            if (model) {
+                scene.remove(model);
+                model.geometry.dispose();
+                model.material.dispose();
+            }
+            
+            // 计算几何体的法向量
+            geometry.computeVertexNormals();
+            
+            // 创建材质
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x4ecdc4,
+                shininess: 100,
+                specular: 0x111111,
+                side: THREE.DoubleSide
+            });
+            
+            // 创建网格
+            model = new THREE.Mesh(geometry, material);
+            originalMaterial = material;
+            
+            // 启用阴影
+            model.castShadow = true;
+            model.receiveShadow = true;
+            
+            // 计算模型的边界盒和尺寸
+            modelBoundingBox = new THREE.Box3().setFromObject(model);
+            modelCenter = modelBoundingBox.getCenter(new THREE.Vector3());
+            modelSize = modelBoundingBox.getSize(new THREE.Vector3());
+            
+            // 将模型居中
+            model.position.sub(modelCenter);
+            
+            // 计算合适的相机距离
+            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
+            initialCameraDistance = maxDim * 2;
+            
+            // 设置相机参数
+            camera.near = maxDim * 0.001;
+            camera.far = maxDim * 100;
+            camera.updateProjectionMatrix();
+            
+            // 设置控制器距离限制
+            controls.minDistance = maxDim * 0.1;
+            controls.maxDistance = maxDim * 10;
+            
+            // 添加到场景
+            scene.add(model);
+            
+            // 适应屏幕
+            fitToScreen();
+            
+            // 显示模型视图
+            showModelView();
+            
+            console.log('模型加载成功');
+            console.log('模型尺寸:', modelSize);
+            console.log('初始相机距离:', initialCameraDistance);
+        }
+
+        // 适应屏幕 - 优化的缩放逻辑
+        function fitToScreen() {
+            if (!model) return;
+            
+            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
+            const fov = camera.fov * (Math.PI / 180);
+            const distance = maxDim / (2 * Math.tan(fov / 2)) * 1.2;
+            
+            // 设置相机位置
+            const direction = camera.position.clone().normalize();
+            camera.position.copy(direction.multiplyScalar(distance));
+            
+            // 更新控制器
+            controls.target.set(0, 0, 0);
+            controls.update();
+            
+            // 重置缩放级别
+            zoomLevel = 1;
+            updateZoomInfo();
+        }
+
+        // 放大
+        function zoomIn() {
+            if (!model) return;
+            const currentDistance = camera.position.distanceTo(controls.target);
+            const newDistance = currentDistance * 0.8;
+            if (newDistance > controls.minDistance) {
+                const direction = camera.position.clone().sub(controls.target).normalize();
+                camera.position.copy(controls.target).add(direction.multiplyScalar(newDistance));
+                controls.update();
+                updateZoomInfo();
+            }
+        }
+
+        // 缩小
+        function zoomOut() {
+            if (!model) return;
+            const currentDistance = camera.position.distanceTo(controls.target);
+            const newDistance = currentDistance * 1.25;
+            if (newDistance < controls.maxDistance) {
+                const direction = camera.position.clone().sub(controls.target).normalize();
+                camera.position.copy(controls.target).add(direction.multiplyScalar(newDistance));
+                controls.update();
+                updateZoomInfo();
+            }
+        }
+
+        // 更新缩放信息显示
+        function updateZoomInfo() {
+            if (!model) return;
+            
+            const currentDistance = camera.position.distanceTo(controls.target);
+            zoomLevel = initialCameraDistance / currentDistance;
+            
+            const zoomPercentage = Math.round(zoomLevel * 100);
+            document.getElementById('zoom-level').textContent = zoomPercentage + '%';
+            
+            // 显示缩放信息
+            const zoomInfo = document.getElementById('zoom-info');
+            zoomInfo.classList.add('show');
+            
+            // 3秒后隐藏
+            clearTimeout(window.zoomInfoTimeout);
+            window.zoomInfoTimeout = setTimeout(() => {
+                zoomInfo.classList.remove('show');
+            }, 3000);
+        }
+
+        // 显示加载状态
+        function showLoading() {
+            document.getElementById('file-upload').classList.add('hidden');
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('error').classList.add('hidden');
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            document.getElementById('file-upload').classList.add('hidden');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+
+        // 显示文件上传界面
+        function showFileUpload() {
+            document.getElementById('file-upload').classList.remove('hidden');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('controls').classList.add('hidden');
+            document.getElementById('instructions').classList.add('hidden');
+            document.getElementById('zoom-info').classList.remove('show');
+        }
+
+        // 显示模型视图
+        function showModelView() {
+            document.getElementById('file-upload').classList.add('hidden');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('controls').classList.remove('hidden');
+            document.getElementById('instructions').classList.remove('hidden');
+            
+            // 默认显示轴控制面板
+            document.getElementById('axis-controls').classList.remove('hidden');
+            const btn = document.getElementById('axisControlBtn');
+            btn.classList.add('active');
+            btn.textContent = '🎯 隐藏控制';
+        }
+
+        // 切换轴控制面板显示
+        function toggleAxisControls() {
+            const axisControls = document.getElementById('axis-controls');
+            const btn = document.getElementById('axisControlBtn');
+            
+            isAxisControlsVisible = !isAxisControlsVisible;
+            
+            if (isAxisControlsVisible) {
+                axisControls.classList.remove('hidden');
+                btn.classList.add('active');
+                btn.textContent = '🎯 隐藏控制';
+            } else {
+                axisControls.classList.add('hidden');
+                btn.classList.remove('active');
+                btn.textContent = '🎯 模型控制';
+            }
+        }
+
+        // 移动模型位置 - 新增功能
+        function moveModel(axis, direction) {
+            if (!model) return;
+            
+            // 计算移动距离（基于模型大小和速度）
+            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
+            const moveDistance = (maxDim * 0.1) * rotationSpeed * direction;
+            
+            // 暂时禁用轨道控制器，避免冲突
+            controls.enabled = false;
+            
+            // 根据轴向进行移动
+            switch(axis) {
+                case 'x':
+                    model.position.x += moveDistance;
+                    break;
+                case 'y':
+                    model.position.y += moveDistance;
+                    break;
+                case 'z':
+                    model.position.z += moveDistance;
+                    break;
+            }
+            
+            // 短暂延迟后重新启用控制器
+            setTimeout(() => {
+                controls.enabled = true;
+            }, 100);
+            
+            // 添加视觉反馈
+            showMovementFeedback(axis, direction);
+        }
+
+        // 显示移动反馈
+        function showMovementFeedback(axis, direction) {
+            const feedback = document.createElement('div');
+            feedback.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(255, 165, 0, 0.9);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 20px;
+                font-size: 14px;
+                z-index: 1000;
+                pointer-events: none;
+                backdrop-filter: blur(10px);
+                border: 2px solid rgba(255, 165, 0, 0.5);
+            `;
+            
+            const axisNames = {
+                'x': '左右',
+                'y': '上下', 
+                'z': '前后'
+            };
+            
+            const directionText = {
+                'x': direction > 0 ? '右移' : '左移',
+                'y': direction > 0 ? '上移' : '下移',
+                'z': direction > 0 ? '前移' : '后移'
+            };
+            
+            feedback.textContent = `📍 ${axisNames[axis]}${directionText[axis]}`;
+            
+            document.body.appendChild(feedback);
+            
+            // 1秒后移除反馈
+            setTimeout(() => {
+                if (document.body.contains(feedback)) {
+                    document.body.removeChild(feedback);
+                }
+            }, 1000);
+        }
+
+        // 重置模型位置
+        function resetModelPosition() {
+            if (!model) return;
+            
+            model.position.set(0, 0, 0);
+            showMovementFeedback('reset', 0);
+        }
+
+        // 旋转模型 - 核心功能
+        function rotateModel(axis, direction) {
+            if (!model) return;
+            
+            // 计算旋转角度（基于速度）
+            const angle = (Math.PI / 180) * 15 * rotationSpeed * direction;
+            
+            // 暂时禁用轨道控制器，避免冲突
+            controls.enabled = false;
+            
+            // 根据轴向进行旋转
+            switch(axis) {
+                case 'x':
+                    model.rotateX(angle);
+                    break;
+                case 'y':
+                    model.rotateY(angle);
+                    break;
+                case 'z':
+                    model.rotateZ(angle);
+                    break;
+            }
+            
+            // 短暂延迟后重新启用控制器
+            setTimeout(() => {
+                controls.enabled = true;
+            }, 100);
+            
+            // 添加视觉反馈
+            showRotationFeedback(axis, direction);
+        }
+
+        // 显示旋转反馈
+        function showRotationFeedback(axis, direction) {
+            const feedback = document.createElement('div');
+            feedback.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 20px;
+                font-size: 14px;
+                z-index: 1000;
+                pointer-events: none;
+                backdrop-filter: blur(10px);
+            `;
+            
+            const axisColors = {
+                'x': '🔴',
+                'y': '🟢', 
+                'z': '🔵'
+            };
+            
+            const directionText = direction > 0 ? '顺时针' : '逆时针';
+            feedback.textContent = `${axisColors[axis]} ${axis.toUpperCase()}轴 ${directionText}旋转`;
+            
+            document.body.appendChild(feedback);
+            
+            // 1秒后移除反馈
+            setTimeout(() => {
+                document.body.removeChild(feedback);
+            }, 1000);
+        }
+
+        // 更新旋转速度
+        function updateRotationSpeed() {
+            rotationSpeed = parseFloat(document.getElementById('rotationSpeed').value);
+            document.getElementById('speedValue').textContent = rotationSpeed + 'x';
+        }
+
+        // 重置模型旋转和位置
+        function resetModelRotation() {
+            if (!model) return;
+            
+            model.rotation.set(0, 0, 0);
+            model.position.set(0, 0, 0);
+            
+            const feedback = document.createElement('div');
+            feedback.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(76, 175, 80, 0.9);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 20px;
+                font-size: 14px;
+                z-index: 1000;
+                pointer-events: none;
+                backdrop-filter: blur(10px);
+            `;
+            feedback.textContent = '🔄 已重置旋转和位置';
+            
+            document.body.appendChild(feedback);
+            setTimeout(() => {
+                if (document.body.contains(feedback)) {
+                    document.body.removeChild(feedback);
+                }
+            }, 1500);
+        }
+
+        // 渲染循环
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // 更新控制器
+            controls.update();
+            
+            // 渲染场景
+            renderer.render(scene, camera);
+        }
+
+        // 窗口大小变化处理
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 重置相机位置
+        function resetCamera() {
+            if (model) {
+                fitToScreen();
+            }
+        }
+
+        // 切换线框模式
+        function toggleWireframe() {
+            if (model) {
+                isWireframe = !isWireframe;
+                model.material.wireframe = isWireframe;
+                
+                const btn = document.getElementById('wireframeBtn');
+                btn.classList.toggle('active', isWireframe);
+                btn.textContent = isWireframe ? '📐 实体模式' : '📐 线框模式';
+            }
+        }
+
+        // 更新光照强度
+        function updateLighting() {
+            const intensity = parseFloat(document.getElementById('lightIntensity').value);
+            document.getElementById('lightValue').textContent = intensity.toFixed(1);
+            
+            if (directionalLight) {
+                directionalLight.intensity = intensity;
+            }
+        }
+
+        // 改变模型颜色
+        function changeColor(color) {
+            if (model) {
+                model.material.color.setHex(color.replace('#', '0x'));
+            }
+        }
+
+        // 改变背景
+        function changeBackground(type) {
+            const body = document.body;
+            
+            // 移除所有按钮的 active 类
+            document.querySelectorAll('[id^="bg"]').forEach(btn => btn.classList.remove('active'));
+            
+            switch(type) {
+                case 'gradient':
+                    body.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                    document.getElementById('bgGradient').classList.add('active');
+                    break;
+                case 'dark':
+                    body.style.background = '#2c3e50';
+                    document.getElementById('bgDark').classList.add('active');
+                    break;
+                case 'light':
+                    body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
+                    document.getElementById('bgLight').classList.add('active');
+                    break;
+            }
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', init);
+
+        // 添加键盘快捷键
+        document.addEventListener('keydown', function(event) {
+            if (event.target.tagName === 'INPUT') return; // 忽略输入框中的按键
+            
+            switch(event.code) {
+                case 'KeyR':
+                    if (event.shiftKey) {
+                        resetModelRotation();
+                    } else {
+                        resetCamera();
+                    }
+                    break;
+                case 'KeyW':
+                    toggleWireframe();
+                    break;
+                case 'KeyF':
+                    fitToScreen();
+                    break;
+                case 'KeyT':
+                    toggleAxisControls();
+                    break;
+                case 'Equal':
+                case 'NumpadAdd':
+                    zoomIn();
+                    break;
+                case 'Minus':
+                case 'NumpadSubtract':
+                    zoomOut();
+                    break;
+                // X轴旋转 (Q/E键)
+                case 'KeyQ':
+                    rotateModel('x', -1);
+                    break;
+                case 'KeyE':
+                    rotateModel('x', 1);
+                    break;
+                // Y轴旋转 (A/D键)
+                case 'KeyA':
+                    rotateModel('y', -1);
+                    break;
+                case 'KeyD':
+                    rotateModel('y', 1);
+                    break;
+                // Z轴旋转 (Z/C键)
+                case 'KeyZ':
+                    rotateModel('z', -1);
+                    break;
+                case 'KeyC':
+                    rotateModel('z', 1);
+                    break;
+                // 位置移动 (方向键)
+                case 'ArrowLeft':
+                    event.preventDefault();
+                    moveModel('x', -1);
+                    break;
+                case 'ArrowRight':
+                    event.preventDefault();
+                    moveModel('x', 1);
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    if (event.shiftKey) {
+                        moveModel('z', 1); // Shift+上箭头：前移
+                    } else {
+                        moveModel('y', 1); // 上箭头：上移
+                    }
+                    break;
+                case 'ArrowDown':
+                    event.preventDefault();
+                    if (event.shiftKey) {
+                        moveModel('z', -1); // Shift+下箭头：后移
+                    } else {
+                        moveModel('y', -1); // 下箭头：下移
+                    }
+                    break;
+                // 颜色快捷键
+                case 'Digit1':
+                    changeColor('#ff6b6b');
+                    break;
+                case 'Digit2':
+                    changeColor('#4ecdc4');
+                    break;
+                case 'Digit3':
+                    changeColor('#45b7d1');
+                    break;
+                case 'Digit4':
+                    changeColor('#96ceb4');
+                    break;
+            }
+        });
+
+        // 防止页面滚动影响3D控制
+        document.addEventListener('wheel', function(e) {
+            if (e.target.closest('#canvas-container')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>
