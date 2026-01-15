@@ -756,10 +756,336 @@
 
     <!-- Three.js 库 - 使用稳定版本 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- STL 加载器 -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
-    <!-- 轨道控制器 -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <script>
+        // 内嵌STL加载器，避免CDN问题
+        THREE.STLLoader = function ( manager ) {
+            this.manager = ( manager !== undefined ) ? manager : THREE.DefaultLoadingManager;
+        };
+
+        THREE.STLLoader.prototype = {
+            constructor: THREE.STLLoader,
+            
+            load: function ( url, onLoad, onProgress, onError ) {
+                var scope = this;
+                var loader = new THREE.FileLoader( scope.manager );
+                loader.setResponseType( 'arraybuffer' );
+                loader.load( url, function ( text ) {
+                    try {
+                        onLoad( scope.parse( text ) );
+                    } catch ( e ) {
+                        if ( onError ) {
+                            onError( e );
+                        } else {
+                            console.error( e );
+                        }
+                        scope.manager.itemError( url );
+                    }
+                }, onProgress, onError );
+            },
+
+            parse: function ( data ) {
+                function isBinary( data ) {
+                    var expect, face_size, n_faces, reader;
+                    if ( data.byteLength < 80 ) return false;
+                    reader = new DataView( data );
+                    face_size = ( 32 / 8 * 3 ) + ( ( 32 / 8 * 3 ) * 3 ) + ( 16 / 8 );
+                    n_faces = reader.getUint32( 80, true );
+                    expect = 80 + ( 32 / 8 ) + ( n_faces * face_size );
+                    if ( expect === reader.byteLength ) {
+                        return true;
+                    }
+                    var fileLength = reader.byteLength;
+                    for ( var index = 0; index < fileLength; index ++ ) {
+                        if ( reader.getUint8( index, false ) > 127 ) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function parseBinary( data ) {
+                    var reader = new DataView( data );
+                    var faces = reader.getUint32( 80, true );
+                    var r, g, b, hasColors = false, colors;
+                    var defaultR, defaultG, defaultB, alpha;
+                    for ( var index = 0; index < 80 - 10; index ++ ) {
+                        if ( ( reader.getUint32( index, false ) == 0x434F4C4F /*COLO*/ ) &&
+                             ( reader.getUint8( index + 4 ) == 0x52 /*'R'*/ ) &&
+                             ( reader.getUint8( index + 5 ) == 0x3D /*'='*/ ) ) {
+                            hasColors = true;
+                            colors = new Float32Array( faces * 3 * 3 );
+                            defaultR = reader.getUint8( index + 6 ) / 255;
+                            defaultG = reader.getUint8( index + 7 ) / 255;
+                            defaultB = reader.getUint8( index + 8 ) / 255;
+                            alpha = reader.getUint8( index + 9 ) / 255;
+                        }
+                    }
+                    var dataOffset = 84;
+                    var faceLength = 12 * 4 + 2;
+                    var geometry = new THREE.BufferGeometry();
+                    var vertices = new Float32Array( faces * 3 * 3 );
+                    var normals = new Float32Array( faces * 3 * 3 );
+                    for ( var face = 0; face < faces; face ++ ) {
+                        var start = dataOffset + face * faceLength;
+                        var normalX = reader.getFloat32( start, true );
+                        var normalY = reader.getFloat32( start + 4, true );
+                        var normalZ = reader.getFloat32( start + 8, true );
+                        if ( hasColors ) {
+                            var packedColor = reader.getUint16( start + 48, true );
+                            if ( ( packedColor & 0x8000 ) === 0 ) {
+                                r = ( packedColor & 0x1F ) / 31;
+                                g = ( ( packedColor >> 5 ) & 0x1F ) / 31;
+                                b = ( ( packedColor >> 10 ) & 0x1F ) / 31;
+                            } else {
+                                r = defaultR;
+                                g = defaultG;
+                                b = defaultB;
+                            }
+                        }
+                        for ( var i = 1; i <= 3; i ++ ) {
+                            var vertexstart = start + i * 12;
+                            var componentIdx = ( face * 3 * 3 ) + ( ( i - 1 ) * 3 );
+                            vertices[ componentIdx ] = reader.getFloat32( vertexstart, true );
+                            vertices[ componentIdx + 1 ] = reader.getFloat32( vertexstart + 4, true );
+                            vertices[ componentIdx + 2 ] = reader.getFloat32( vertexstart + 8, true );
+                            normals[ componentIdx ] = normalX;
+                            normals[ componentIdx + 1 ] = normalY;
+                            normals[ componentIdx + 2 ] = normalZ;
+                            if ( hasColors ) {
+                                colors[ componentIdx ] = r;
+                                colors[ componentIdx + 1 ] = g;
+                                colors[ componentIdx + 2 ] = b;
+                            }
+                        }
+                    }
+                    geometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+                    geometry.setAttribute( 'normal', new THREE.BufferAttribute( normals, 3 ) );
+                    if ( hasColors ) {
+                        geometry.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+                        geometry.hasColors = true;
+                        geometry.alpha = alpha;
+                    }
+                    return geometry;
+                }
+
+                function parseASCII( data ) {
+                    var geometry = new THREE.BufferGeometry();
+                    var patternSolid = /solid([\s\S]*?)endsolid/g;
+                    var patternFace = /facet([\s\S]*?)endfacet/g;
+                    var patternFloat = /[\s]+([+-]?(?:\d*)(?:\.\d*)?(?:[eE][+-]?\d+)?)[\s]+/g;
+                    var result;
+                    var groupVertices = [];
+                    var groupNormals = [];
+                    var text = '';
+                    if ( data instanceof ArrayBuffer ) {
+                        var view = new Uint8Array( data );
+                        for ( var i = 0, l = view.length; i < l; i ++ ) {
+                            text += String.fromCharCode( view[ i ] );
+                        }
+                    } else {
+                        text = data;
+                    }
+                    while ( ( result = patternSolid.exec( text ) ) !== null ) {
+                        var solid = result[ 0 ];
+                        while ( ( result = patternFace.exec( solid ) ) !== null ) {
+                            var face = result[ 0 ];
+                            var vertices = [];
+                            var normal = [];
+                            patternFloat.lastIndex = 0;
+                            while ( ( result = patternFloat.exec( face ) ) !== null ) {
+                                vertices.push( parseFloat( result[ 1 ] ) );
+                            }
+                            normal.push( vertices[ 0 ], vertices[ 1 ], vertices[ 2 ] );
+                            for ( var i = 3; i < 12; i += 3 ) {
+                                groupVertices.push( vertices[ i ], vertices[ i + 1 ], vertices[ i + 2 ] );
+                                groupNormals.push( normal[ 0 ], normal[ 1 ], normal[ 2 ] );
+                            }
+                        }
+                    }
+                    geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( groupVertices, 3 ) );
+                    geometry.setAttribute( 'normal', new THREE.Float32BufferAttribute( groupNormals, 3 ) );
+                    return geometry;
+                }
+
+                return isBinary( data ) ? parseBinary( data ) : parseASCII( data );
+            }
+        };
+        
+        // 内嵌轨道控制器
+        THREE.OrbitControls = function ( object, domElement ) {
+            if ( domElement === undefined ) console.warn( 'THREE.OrbitControls: The second parameter "domElement" is now mandatory.' );
+            if ( domElement === document ) console.error( 'THREE.OrbitControls: "document" should not be used as the target "domElement". Please use "renderer.domElement" instead.' );
+            this.object = object;
+            this.domElement = domElement;
+            this.domElement.style.touchAction = 'none';
+            this.enabled = true;
+            this.target = new THREE.Vector3();
+            this.minDistance = 0;
+            this.maxDistance = Infinity;
+            this.minZoom = 0;
+            this.maxZoom = Infinity;
+            this.minPolarAngle = 0;
+            this.maxPolarAngle = Math.PI;
+            this.minAzimuthAngle = - Infinity;
+            this.maxAzimuthAngle = Infinity;
+            this.enableDamping = false;
+            this.dampingFactor = 0.05;
+            this.enableZoom = true;
+            this.zoomSpeed = 1.0;
+            this.enableRotate = true;
+            this.rotateSpeed = 1.0;
+            this.enablePan = true;
+            this.panSpeed = 1.0;
+            this.screenSpacePanning = true;
+            this.keyPanSpeed = 7.0;
+            this.autoRotate = false;
+            this.autoRotateSpeed = 2.0;
+            this.keys = { LEFT: 'ArrowLeft', UP: 'ArrowUp', RIGHT: 'ArrowRight', BOTTOM: 'ArrowDown' };
+            this.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+            this.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+            this.target0 = this.target.clone();
+            this.position0 = this.object.position.clone();
+            this.zoom0 = this.object.zoom;
+            this._domElementKeyEvents = null;
+            this.getPolarAngle = function () { return spherical.phi; };
+            this.getAzimuthalAngle = function () { return spherical.theta; };
+            this.getDistance = function () { return this.object.position.distanceTo( this.target ); };
+            this.listenToKeyEvents = function ( domElement ) { domElement.addEventListener( 'keydown', onKeyDown ); this._domElementKeyEvents = domElement; };
+            this.saveState = function () { scope.target0.copy( scope.target ); scope.position0.copy( scope.object.position ); scope.zoom0 = scope.object.zoom; };
+            this.reset = function () { scope.target.copy( scope.target0 ); scope.object.position.copy( scope.position0 ); scope.object.zoom = scope.zoom0; scope.object.updateProjectionMatrix(); scope.dispatchEvent( changeEvent ); scope.update(); };
+            this.update = function () {
+                var offset = new THREE.Vector3();
+                var quat = new THREE.Quaternion().setFromUnitVectors( object.up, new THREE.Vector3( 0, 1, 0 ) );
+                var quatInverse = quat.clone().invert();
+                var lastPosition = new THREE.Vector3();
+                var lastQuaternion = new THREE.Quaternion();
+                var twoPI = 2 * Math.PI;
+                return function update() {
+                    var position = scope.object.position;
+                    offset.copy( position ).sub( scope.target );
+                    offset.applyQuaternion( quat );
+                    spherical.setFromVector3( offset );
+                    if ( scope.autoRotate && state === STATE.NONE ) {
+                        rotateLeft( getAutoRotationAngle() );
+                    }
+                    if ( scope.enableDamping ) {
+                        spherical.theta += sphericalDelta.theta * scope.dampingFactor;
+                        spherical.phi += sphericalDelta.phi * scope.dampingFactor;
+                    } else {
+                        spherical.theta += sphericalDelta.theta;
+                        spherical.phi += sphericalDelta.phi;
+                    }
+                    spherical.theta = Math.max( scope.minAzimuthAngle, Math.min( scope.maxAzimuthAngle, spherical.theta ) );
+                    spherical.phi = Math.max( scope.minPolarAngle, Math.min( scope.maxPolarAngle, spherical.phi ) );
+                    spherical.makeSafe();
+                    spherical.radius *= scale;
+                    spherical.radius = Math.max( scope.minDistance, Math.min( scope.maxDistance, spherical.radius ) );
+                    if ( scope.enableDamping === true ) {
+                        scope.target.addScaledVector( panOffset, scope.dampingFactor );
+                    } else {
+                        scope.target.add( panOffset );
+                    }
+                    offset.setFromSpherical( spherical );
+                    offset.applyQuaternion( quatInverse );
+                    position.copy( scope.target ).add( offset );
+                    scope.object.lookAt( scope.target );
+                    if ( scope.enableDamping === true ) {
+                        sphericalDelta.theta *= ( 1 - scope.dampingFactor );
+                        sphericalDelta.phi *= ( 1 - scope.dampingFactor );
+                        panOffset.multiplyScalar( 1 - scope.dampingFactor );
+                    } else {
+                        sphericalDelta.set( 0, 0, 0 );
+                        panOffset.set( 0, 0, 0 );
+                    }
+                    scale = 1;
+                    if ( zoomChanged || lastPosition.distanceToSquared( scope.object.position ) > EPS || 8 * ( 1 - lastQuaternion.dot( scope.object.quaternion ) ) > EPS ) {
+                        scope.dispatchEvent( changeEvent );
+                        lastPosition.copy( scope.object.position );
+                        lastQuaternion.copy( scope.object.quaternion );
+                        zoomChanged = false;
+                        return true;
+                    }
+                    return false;
+                };
+            }();
+            this.dispose = function () { scope.domElement.removeEventListener( 'contextmenu', onContextMenu ); scope.domElement.removeEventListener( 'pointerdown', onPointerDown ); scope.domElement.removeEventListener( 'pointercancel', onPointerCancel ); scope.domElement.removeEventListener( 'wheel', onMouseWheel ); scope.domElement.removeEventListener( 'pointermove', onPointerMove ); scope.domElement.removeEventListener( 'pointerup', onPointerUp ); if ( scope._domElementKeyEvents !== null ) { scope._domElementKeyEvents.removeEventListener( 'keydown', onKeyDown ); } };
+            var scope = this;
+            var changeEvent = { type: 'change' };
+            var startEvent = { type: 'start' };
+            var endEvent = { type: 'end' };
+            var STATE = { NONE: - 1, ROTATE: 0, DOLLY: 1, PAN: 2, TOUCH_ROTATE: 3, TOUCH_PAN: 4, TOUCH_DOLLY_PAN: 5, TOUCH_DOLLY_ROTATE: 6 };
+            var state = STATE.NONE;
+            var EPS = 0.000001;
+            var spherical = new THREE.Spherical();
+            var sphericalDelta = new THREE.Spherical();
+            var scale = 1;
+            var panOffset = new THREE.Vector3();
+            var zoomChanged = false;
+            var rotateStart = new THREE.Vector2();
+            var rotateEnd = new THREE.Vector2();
+            var rotateDelta = new THREE.Vector2();
+            var panStart = new THREE.Vector2();
+            var panEnd = new THREE.Vector2();
+            var panDelta = new THREE.Vector2();
+            var dollyStart = new THREE.Vector2();
+            var dollyEnd = new THREE.Vector2();
+            var dollyDelta = new THREE.Vector2();
+            var pointers = [];
+            var pointerPositions = {};
+            function getAutoRotationAngle() { return 2 * Math.PI / 60 / 60 * scope.autoRotateSpeed; }
+            function getZoomScale() { return Math.pow( 0.95, scope.zoomSpeed ); }
+            function rotateLeft( angle ) { sphericalDelta.theta -= angle; }
+            function rotateUp( angle ) { sphericalDelta.phi -= angle; }
+            var panLeft = function () { var v = new THREE.Vector3(); return function panLeft( distance, objectMatrix ) { v.setFromMatrixColumn( objectMatrix, 0 ); v.multiplyScalar( - distance ); panOffset.add( v ); }; }();
+            var panUp = function () { var v = new THREE.Vector3(); return function panUp( distance, objectMatrix ) { if ( scope.screenSpacePanning === true ) { v.setFromMatrixColumn( objectMatrix, 1 ); } else { v.setFromMatrixColumn( objectMatrix, 0 ); v.crossVectors( scope.object.up, v ); } v.multiplyScalar( distance ); panOffset.add( v ); }; }();
+            var pan = function () { var offset = new THREE.Vector3(); return function pan( deltaX, deltaY ) { var element = scope.domElement; if ( scope.object.isPerspectiveCamera ) { var position = scope.object.position; offset.copy( position ).sub( scope.target ); var targetDistance = offset.length(); targetDistance *= Math.tan( ( scope.object.fov / 2 ) * Math.PI / 180.0 ); panLeft( 2 * deltaX * targetDistance / element.clientHeight, scope.object.matrix ); panUp( 2 * deltaY * targetDistance / element.clientHeight, scope.object.matrix ); } else if ( scope.object.isOrthographicCamera ) { panLeft( deltaX * ( scope.object.right - scope.object.left ) / scope.object.zoom / element.clientWidth, scope.object.matrix ); panUp( deltaY * ( scope.object.top - scope.object.bottom ) / scope.object.zoom / element.clientHeight, scope.object.matrix ); } else { console.warn( 'WARNING: OrbitControls.js encountered an unknown camera type - pan disabled.' ); scope.enablePan = false; } }; }();
+            function dollyOut( dollyScale ) { if ( scope.object.isPerspectiveCamera ) { scale /= dollyScale; } else if ( scope.object.isOrthographicCamera ) { scope.object.zoom = Math.max( scope.minZoom, Math.min( scope.maxZoom, scope.object.zoom * dollyScale ) ); scope.object.updateProjectionMatrix(); zoomChanged = true; } else { console.warn( 'WARNING: OrbitControls.js encountered an unknown camera type - dolly/zoom disabled.' ); scope.enableZoom = false; } }
+            function dollyIn( dollyScale ) { if ( scope.object.isPerspectiveCamera ) { scale *= dollyScale; } else if ( scope.object.isOrthographicCamera ) { scope.object.zoom = Math.max( scope.minZoom, Math.min( scope.maxZoom, scope.object.zoom / dollyScale ) ); scope.object.updateProjectionMatrix(); zoomChanged = true; } else { console.warn( 'WARNING: OrbitControls.js encountered an unknown camera type - dolly/zoom disabled.' ); scope.enableZoom = false; } }
+            function handleMouseDownRotate( event ) { rotateStart.set( event.clientX, event.clientY ); }
+            function handleMouseDownDolly( event ) { dollyStart.set( event.clientX, event.clientY ); }
+            function handleMouseDownPan( event ) { panStart.set( event.clientX, event.clientY ); }
+            function handleMouseMoveRotate( event ) { rotateEnd.set( event.clientX, event.clientY ); rotateDelta.subVectors( rotateEnd, rotateStart ).multiplyScalar( scope.rotateSpeed ); var element = scope.domElement; rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientHeight ); rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight ); rotateStart.copy( rotateEnd ); scope.update(); }
+            function handleMouseMoveDolly( event ) { dollyEnd.set( event.clientX, event.clientY ); dollyDelta.subVectors( dollyEnd, dollyStart ); if ( dollyDelta.y > 0 ) { dollyOut( getZoomScale() ); } else if ( dollyDelta.y < 0 ) { dollyIn( getZoomScale() ); } dollyStart.copy( dollyEnd ); scope.update(); }
+            function handleMouseMovePan( event ) { panEnd.set( event.clientX, event.clientY ); panDelta.subVectors( panEnd, panStart ).multiplyScalar( scope.panSpeed ); pan( panDelta.x, panDelta.y ); panStart.copy( panEnd ); scope.update(); }
+            function handleMouseWheel( event ) { if ( event.deltaY < 0 ) { dollyIn( getZoomScale() ); } else if ( event.deltaY > 0 ) { dollyOut( getZoomScale() ); } scope.update(); }
+            function handleKeyDown( event ) { var needsUpdate = false; switch ( event.code ) { case scope.keys.UP: pan( 0, scope.keyPanSpeed ); needsUpdate = true; break; case scope.keys.BOTTOM: pan( 0, - scope.keyPanSpeed ); needsUpdate = true; break; case scope.keys.LEFT: pan( scope.keyPanSpeed, 0 ); needsUpdate = true; break; case scope.keys.RIGHT: pan( - scope.keyPanSpeed, 0 ); needsUpdate = true; break; } if ( needsUpdate ) { event.preventDefault(); scope.update(); } }
+            function handleTouchStartRotate() { if ( pointers.length === 1 ) { rotateStart.set( pointers[ 0 ].pageX, pointers[ 0 ].pageY ); } else { var x = 0.5 * ( pointers[ 0 ].pageX + pointers[ 1 ].pageX ); var y = 0.5 * ( pointers[ 0 ].pageY + pointers[ 1 ].pageY ); rotateStart.set( x, y ); } }
+            function handleTouchStartPan() { if ( pointers.length === 1 ) { panStart.set( pointers[ 0 ].pageX, pointers[ 0 ].pageY ); } else { var x = 0.5 * ( pointers[ 0 ].pageX + pointers[ 1 ].pageX ); var y = 0.5 * ( pointers[ 0 ].pageY + pointers[ 1 ].pageY ); panStart.set( x, y ); } }
+            function handleTouchStartDolly() { var dx = pointers[ 0 ].pageX - pointers[ 1 ].pageX; var dy = pointers[ 0 ].pageY - pointers[ 1 ].pageY; var distance = Math.sqrt( dx * dx + dy * dy ); dollyStart.set( 0, distance ); }
+            function handleTouchStartDollyPan() { if ( scope.enableZoom ) handleTouchStartDolly(); if ( scope.enablePan ) handleTouchStartPan(); }
+            function handleTouchStartDollyRotate() { if ( scope.enableZoom ) handleTouchStartDolly(); if ( scope.enableRotate ) handleTouchStartRotate(); }
+            function handleTouchMoveRotate( event ) { if ( pointers.length == 1 ) { rotateEnd.set( event.pageX, event.pageY ); } else { var position = getSecondPointerPosition( event ); var x = 0.5 * ( event.pageX + position.x ); var y = 0.5 * ( event.pageY + position.y ); rotateEnd.set( x, y ); } rotateDelta.subVectors( rotateEnd, rotateStart ).multiplyScalar( scope.rotateSpeed ); var element = scope.domElement; rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientHeight ); rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight ); rotateStart.copy( rotateEnd ); }
+            function handleTouchMovePan( event ) { if ( pointers.length === 1 ) { panEnd.set( event.pageX, event.pageY ); } else { var position = getSecondPointerPosition( event ); var x = 0.5 * ( event.pageX + position.x ); var y = 0.5 * ( event.pageY + position.y ); panEnd.set( x, y ); } panDelta.subVectors( panEnd, panStart ).multiplyScalar( scope.panSpeed ); pan( panDelta.x, panDelta.y ); panStart.copy( panEnd ); }
+            function handleTouchMoveDolly( event ) { var position = getSecondPointerPosition( event ); var dx = event.pageX - position.x; var dy = event.pageY - position.y; var distance = Math.sqrt( dx * dx + dy * dy ); dollyEnd.set( 0, distance ); dollyDelta.set( 0, Math.pow( dollyEnd.y / dollyStart.y, scope.zoomSpeed ) ); dollyOut( dollyDelta.y ); dollyStart.copy( dollyEnd ); }
+            function handleTouchMoveDollyPan( event ) { if ( scope.enableZoom ) handleTouchMoveDolly( event ); if ( scope.enablePan ) handleTouchMovePan( event ); }
+            function handleTouchMoveDollyRotate( event ) { if ( scope.enableZoom ) handleTouchMoveDolly( event ); if ( scope.enableRotate ) handleTouchMoveRotate( event ); }
+            function onPointerDown( event ) { if ( scope.enabled === false ) return; if ( pointers.length === 0 ) { scope.domElement.setPointerCapture( event.pointerId ); scope.domElement.addEventListener( 'pointermove', onPointerMove ); scope.domElement.addEventListener( 'pointerup', onPointerUp ); } addPointer( event ); if ( event.pointerType === 'touch' ) { onTouchStart( event ); } else { onMouseDown( event ); } }
+            function onPointerMove( event ) { if ( scope.enabled === false ) return; if ( event.pointerType === 'touch' ) { onTouchMove( event ); } else { onMouseMove( event ); } }
+            function onPointerUp( event ) { removePointer( event ); if ( pointers.length === 0 ) { scope.domElement.releasePointerCapture( event.pointerId ); scope.domElement.removeEventListener( 'pointermove', onPointerMove ); scope.domElement.removeEventListener( 'pointerup', onPointerUp ); } scope.dispatchEvent( endEvent ); state = STATE.NONE; }
+            function onPointerCancel( event ) { removePointer( event ); }
+            function onMouseDown( event ) { var mouseAction; switch ( event.button ) { case 0: mouseAction = scope.mouseButtons.LEFT; break; case 1: mouseAction = scope.mouseButtons.MIDDLE; break; case 2: mouseAction = scope.mouseButtons.RIGHT; break; default: mouseAction = - 1; } switch ( mouseAction ) { case THREE.MOUSE.DOLLY: if ( scope.enableZoom === false ) return; handleMouseDownDolly( event ); state = STATE.DOLLY; break; case THREE.MOUSE.ROTATE: if ( event.ctrlKey || event.metaKey || event.shiftKey ) { if ( scope.enablePan === false ) return; handleMouseDownPan( event ); state = STATE.PAN; } else { if ( scope.enableRotate === false ) return; handleMouseDownRotate( event ); state = STATE.ROTATE; } break; case THREE.MOUSE.PAN: if ( event.ctrlKey || event.metaKey || event.shiftKey ) { if ( scope.enableRotate === false ) return; handleMouseDownRotate( event ); state = STATE.ROTATE; } else { if ( scope.enablePan === false ) return; handleMouseDownPan( event ); state = STATE.PAN; } break; default: state = STATE.NONE; } if ( state !== STATE.NONE ) { scope.dispatchEvent( startEvent ); } }
+            function onMouseMove( event ) { if ( scope.enabled === false ) return; switch ( state ) { case STATE.ROTATE: if ( scope.enableRotate === false ) return; handleMouseMoveRotate( event ); break; case STATE.DOLLY: if ( scope.enableZoom === false ) return; handleMouseMoveDolly( event ); break; case STATE.PAN: if ( scope.enablePan === false ) return; handleMouseMovePan( event ); break; } }
+            function onMouseWheel( event ) { if ( scope.enabled === false || scope.enableZoom === false || ( state !== STATE.NONE && state !== STATE.ROTATE ) ) return; event.preventDefault(); scope.dispatchEvent( startEvent ); handleMouseWheel( event ); scope.dispatchEvent( endEvent ); }
+            function onKeyDown( event ) { if ( scope.enabled === false || scope.enablePan === false ) return; handleKeyDown( event ); }
+            function onTouchStart( event ) { trackPointer( event ); switch ( pointers.length ) { case 1: switch ( scope.touches.ONE ) { case THREE.TOUCH.ROTATE: if ( scope.enableRotate === false ) return; handleTouchStartRotate(); state = STATE.TOUCH_ROTATE; break; case THREE.TOUCH.PAN: if ( scope.enablePan === false ) return; handleTouchStartPan(); state = STATE.TOUCH_PAN; break; default: state = STATE.NONE; } break; case 2: switch ( scope.touches.TWO ) { case THREE.TOUCH.DOLLY_PAN: if ( scope.enableZoom === false && scope.enablePan === false ) return; handleTouchStartDollyPan(); state = STATE.TOUCH_DOLLY_PAN; break; case THREE.TOUCH.DOLLY_ROTATE: if ( scope.enableZoom === false && scope.enableRotate === false ) return; handleTouchStartDollyRotate(); state = STATE.TOUCH_DOLLY_ROTATE; break; default: state = STATE.NONE; } break; default: state = STATE.NONE; } if ( state !== STATE.NONE ) { scope.dispatchEvent( startEvent ); } }
+            function onTouchMove( event ) { trackPointer( event ); switch ( state ) { case STATE.TOUCH_ROTATE: if ( scope.enableRotate === false ) return; handleTouchMoveRotate( event ); scope.update(); break; case STATE.TOUCH_PAN: if ( scope.enablePan === false ) return; handleTouchMovePan( event ); scope.update(); break; case STATE.TOUCH_DOLLY_PAN: if ( scope.enableZoom === false && scope.enablePan === false ) return; handleTouchMoveDollyPan( event ); scope.update(); break; case STATE.TOUCH_DOLLY_ROTATE: if ( scope.enableZoom === false && scope.enableRotate === false ) return; handleTouchMoveDollyRotate( event ); scope.update(); break; default: state = STATE.NONE; } }
+            function onContextMenu( event ) { if ( scope.enabled === false ) return; event.preventDefault(); }
+            function addPointer( event ) { pointers.push( event ); }
+            function removePointer( event ) { delete pointerPositions[ event.pointerId ]; for ( var i = 0; i < pointers.length; i ++ ) { if ( pointers[ i ].pointerId == event.pointerId ) { pointers.splice( i, 1 ); return; } } }
+            function trackPointer( event ) { var position = pointerPositions[ event.pointerId ]; if ( position === undefined ) { position = new THREE.Vector2(); pointerPositions[ event.pointerId ] = position; } position.set( event.pageX, event.pageY ); }
+            function getSecondPointerPosition( event ) { var pointer = ( event.pointerId === pointers[ 0 ].pointerId ) ? pointers[ 1 ] : pointers[ 0 ]; return pointerPositions[ pointer.pointerId ]; }
+            scope.domElement.addEventListener( 'contextmenu', onContextMenu );
+            scope.domElement.addEventListener( 'pointerdown', onPointerDown );
+            scope.domElement.addEventListener( 'pointercancel', onPointerCancel );
+            scope.domElement.addEventListener( 'wheel', onMouseWheel );
+            scope.update();
+        };
+        THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
+        THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
+        
+        console.log('✓ STL加载器和轨道控制器已内嵌');
+    </script>
 
     <script>
         // 全局变量
@@ -775,12 +1101,40 @@
 
         // 初始化 3D 场景
         function init() {
+            console.log('=== 开始初始化 3D 场景 ===');
+            
+            // 检查Three.js是否加载
+            if (typeof THREE === 'undefined') {
+                console.error('Three.js 库未加载！');
+                showError('Three.js 库加载失败，请检查网络连接！');
+                return;
+            }
+            console.log('✓ Three.js 库已加载，版本:', THREE.REVISION);
+            
+            // 检查STLLoader是否加载
+            if (typeof THREE.STLLoader === 'undefined') {
+                console.error('STLLoader 未加载！');
+                showError('STL加载器未找到，请检查网络连接！');
+                return;
+            }
+            console.log('✓ STLLoader 已加载');
+            
+            // 检查OrbitControls是否加载
+            if (typeof THREE.OrbitControls === 'undefined') {
+                console.error('OrbitControls 未加载！');
+                showError('轨道控制器未找到，请检查网络连接！');
+                return;
+            }
+            console.log('✓ OrbitControls 已加载');
+            
             // 创建场景
             scene = new THREE.Scene();
+            console.log('✓ 场景创建完成');
             
             // 创建相机 - 优化视角参数
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 10000);
             camera.position.set(5, 5, 5);
+            console.log('✓ 相机创建完成');
             
             // 创建渲染器 - 优化渲染参数
             renderer = new THREE.WebGLRenderer({ 
@@ -793,9 +1147,11 @@
             renderer.setClearColor(0x000000, 0);
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            console.log('✓ 渲染器创建完成');
             
             // 将渲染器添加到页面
             document.getElementById('canvas-container').appendChild(renderer.domElement);
+            console.log('✓ 渲染器已添加到页面');
             
             // 创建轨道控制器 - 优化缩放参数和Z轴控制
             controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -829,24 +1185,30 @@
             
             // 监听控制器变化
             controls.addEventListener('change', updateZoomInfo);
+            console.log('✓ 轨道控制器创建完成');
             
             // 设置光照
             setupLighting();
+            console.log('✓ 光照设置完成');
             
             // 监听窗口大小变化
             window.addEventListener('resize', onWindowResize, false);
             
             // 设置拖拽功能
             setupDragDrop();
+            console.log('✓ 拖拽功能设置完成');
             
             // 添加双击事件
             renderer.domElement.addEventListener('dblclick', fitToScreen);
             
             // 直接加载默认模型
+            console.log('准备加载默认模型...');
             loadDefaultModel();
             
             // 开始渲染循环
             animate();
+            console.log('✓ 渲染循环已启动');
+            console.log('=== 3D 场景初始化完成 ===');
         }
 
         // 设置光照 - 优化光照效果
@@ -970,7 +1332,7 @@
             
             const loader = new THREE.STLLoader();
             loader.load(
-                './鹅伴小车.stl',  // 添加相对路径前缀
+                '鹅伴小车.stl',
                 function (geometry) {
                     console.log('默认模型加载成功！');
                     createModelFromGeometry(geometry);
@@ -984,7 +1346,6 @@
                 function (error) {
                     console.error('默认模型加载失败:', error);
                     console.log('尝试显示文件上传界面');
-                    // 如果默认模型加载失败，显示文件上传界面
                     showFileUpload();
                 }
             );
@@ -1032,6 +1393,7 @@
             // 初始位置保持在原点(0,0,0)，重置时才移动到调整位置
             
             // 计算合适的相机距离 - 针对移动端优化
+            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
             
             // 检测是否为移动设备
             const isMobile = window.innerWidth <= 768;
@@ -1142,6 +1504,7 @@
 
         // 显示加载状态
         function showLoading() {
+            console.log('显示加载界面');
             document.getElementById('file-upload').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
             document.getElementById('error').classList.add('hidden');
@@ -1167,6 +1530,7 @@
 
         // 显示模型视图
         function showModelView() {
+            console.log('显示模型视图');
             document.getElementById('file-upload').classList.add('hidden');
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('error').classList.add('hidden');
