@@ -1387,13 +1387,16 @@
             // 将模型居中
             model.position.sub(modelCenter);
             
-            // 设置初始旋转：X轴减90度（基础旋转）
-            model.rotation.x = -Math.PI / 2;
-            
-            // 初始位置保持在原点(0,0,0)，重置时才移动到调整位置
+            // 设置初始旋转和位置（与重置位置按钮一致）
+            // X轴-90度 + Z轴顺时针旋转15度
+            model.rotation.set(-Math.PI / 2, 0, (Math.PI / 180) * 15 * rotationSpeed * 1);
             
             // 计算合适的相机距离 - 针对移动端优化
             const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
+            
+            // 设置初始位置：向左移动4次，向下移动4次（与重置位置按钮一致）
+            const moveDistance = maxDim * 0.1 * rotationSpeed;
+            model.position.set(-moveDistance * 4, -moveDistance * 4, 0);
             
             // 检测是否为移动设备
             const isMobile = window.innerWidth <= 768;
@@ -1424,8 +1427,8 @@
             console.log('模型尺寸:', modelSize);
             console.log('初始相机距离:', initialCameraDistance);
             console.log('移动端模式:', isMobile);
-            console.log('初始状态: X轴-90°, 位置(0,0,0), 橙色');
-            console.log('重置状态: X轴-90°+Z轴15°, 位置(左4次,下4次,0)');
+            console.log('初始状态已设置为: X轴-90°+Z轴15°, 位置(左4次,下4次,0), 橙色');
+            console.log('初始状态与重置位置按钮效果一致');
         }
 
         // 适应屏幕 - 优化的缩放逻辑，移动端友好
