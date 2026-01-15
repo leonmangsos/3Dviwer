@@ -613,10 +613,10 @@
                 </div>
                 
                 <div class="axis-group">
-                    <span class="axis-label">Z轴 (蓝色)</span>
+                    <span class="axis-label">Z轴 (蓝色) - 仅按钮控制</span>
                     <div class="axis-buttons">
-                        <button class="axis-btn z-axis" onclick="rotateModel('z', -1)">⟲</button>
-                        <button class="axis-btn z-axis" onclick="rotateModel('z', 1)">⟳</button>
+                        <button class="axis-btn z-axis" onclick="rotateModel('z', -1)" title="Z轴逆时针旋转">⟲</button>
+                        <button class="axis-btn z-axis" onclick="rotateModel('z', 1)" title="Z轴顺时针旋转">⟳</button>
                     </div>
                 </div>
             </div>
@@ -682,11 +682,11 @@
             
             <div class="control-group">
                 <label>模型颜色</label>
-                <button onclick="changeColor('#ff6b6b')" style="background: #ff6b6b;">红色</button>
+                <button onclick="changeColor('#ff8c00')" style="background: #ff8c00;">金色</button>
                 <button onclick="changeColor('#4ecdc4')" style="background: #4ecdc4;">青色</button>
                 <button onclick="changeColor('#45b7d1')" style="background: #45b7d1;">蓝色</button>
                 <button onclick="changeColor('#96ceb4')" style="background: #96ceb4;">绿色</button>
-                <button onclick="changeColor('#ffeaa7')" style="background: #ffeaa7;">黄色</button>
+                <button onclick="changeColor('#FF6103')" style="background: #FF6103;">橙色</button>
                 <button onclick="changeColor('#dda0dd')" style="background: #dda0dd;">紫色</button>
             </div>
             
@@ -738,13 +738,14 @@
             <ul>
                 <li><strong>方向键：移动模型位置</strong></li>
                 <li><strong>Q/E/A/D/Z/C：旋转控制</strong></li>
-                <li>鼠标左键拖拽：旋转视角</li>
+                <li>鼠标左键拖拽：X/Y轴旋转视角</li>
                 <li>鼠标右键拖拽：平移视角</li>
                 <li>鼠标滚轮：缩放模型</li>
                 <li>双击：快速适应屏幕</li>
                 <li>T键：显示/隐藏模型控制</li>
                 <li>H键：隐藏/显示所有界面</li>
                 <li>Shift+R：重置位置和旋转</li>
+                <li><strong>注意：Z轴旋转需使用按钮或Z/C键</strong></li>
             </ul>
         </div>
 
@@ -796,12 +797,14 @@
             // 将渲染器添加到页面
             document.getElementById('canvas-container').appendChild(renderer.domElement);
             
-            // 创建轨道控制器 - 优化缩放参数
+            // 创建轨道控制器 - 优化缩放参数和Z轴控制
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.screenSpacePanning = true;  // 启用屏幕空间平移
             controls.enablePan = true;           // 确保平移功能启用
+            controls.enableRotate = true;        // 确保旋转功能启用
+            controls.enableZoom = true;          // 确保缩放功能启用
             controls.minDistance = 0.1;
             controls.maxDistance = 1000;
             controls.maxPolarAngle = Math.PI;
@@ -810,6 +813,19 @@
             controls.zoomSpeed = 1.2;
             controls.panSpeed = 1.0;             // 增加平移速度
             controls.rotateSpeed = 0.5;
+            
+            // 启用所有鼠标按键功能
+            controls.mouseButtons = {
+                LEFT: THREE.MOUSE.ROTATE,    // 左键旋转
+                MIDDLE: THREE.MOUSE.DOLLY,   // 中键缩放
+                RIGHT: THREE.MOUSE.PAN       // 右键平移
+            };
+            
+            // 启用触摸控制（移动端）
+            controls.touches = {
+                ONE: THREE.TOUCH.ROTATE,     // 单指旋转
+                TWO: THREE.TOUCH.DOLLY_PAN   // 双指缩放和平移
+            };
             
             // 监听控制器变化
             controls.addEventListener('change', updateZoomInfo);
@@ -949,19 +965,25 @@
 
         // 加载默认模型
         function loadDefaultModel() {
+            console.log('开始加载默认模型: 鹅伴小车.stl');
             showLoading();
             
             const loader = new THREE.STLLoader();
             loader.load(
-                '鹅伴小车.stl',
+                './鹅伴小车.stl',  // 添加相对路径前缀
                 function (geometry) {
+                    console.log('默认模型加载成功！');
                     createModelFromGeometry(geometry);
                 },
                 function (progress) {
-                    console.log('加载进度:', (progress.loaded / progress.total * 100) + '%');
+                    if (progress.total > 0) {
+                        const percent = (progress.loaded / progress.total * 100).toFixed(1);
+                        console.log('加载进度:', percent + '%');
+                    }
                 },
                 function (error) {
                     console.error('默认模型加载失败:', error);
+                    console.log('尝试显示文件上传界面');
                     // 如果默认模型加载失败，显示文件上传界面
                     showFileUpload();
                 }
@@ -980,9 +1002,9 @@
             // 计算几何体的法向量
             geometry.computeVertexNormals();
             
-            // 创建材质
+            // 创建材质 - 初始颜色设为橙色
             const material = new THREE.MeshPhongMaterial({
-                color: 0x4ecdc4,
+                color: 0xFF6103,  // 橙色 RGB(255,97,3)
                 shininess: 100,
                 specular: 0x111111,
                 side: THREE.DoubleSide
@@ -1004,8 +1026,12 @@
             // 将模型居中
             model.position.sub(modelCenter);
             
+            // 设置初始旋转：X轴减90度（基础旋转）
+            model.rotation.x = -Math.PI / 2;
+            
+            // 初始位置保持在原点(0,0,0)，重置时才移动到调整位置
+            
             // 计算合适的相机距离 - 针对移动端优化
-            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
             
             // 检测是否为移动设备
             const isMobile = window.innerWidth <= 768;
@@ -1036,6 +1062,8 @@
             console.log('模型尺寸:', modelSize);
             console.log('初始相机距离:', initialCameraDistance);
             console.log('移动端模式:', isMobile);
+            console.log('初始状态: X轴-90°, 位置(0,0,0), 橙色');
+            console.log('重置状态: X轴-90°+Z轴15°, 位置(左4次,下4次,0)');
         }
 
         // 适应屏幕 - 优化的缩放逻辑，移动端友好
@@ -1426,8 +1454,13 @@
         function resetModelRotation() {
             if (!model) return;
             
-            model.rotation.set(0, 0, 0);
-            model.position.set(0, 0, 0);
+            // 重置到初始状态：X轴-90度，Z轴顺时针旋转1次
+            model.rotation.set(-Math.PI / 2, 0, (Math.PI / 180) * 15 * rotationSpeed * 1);
+            
+            // 重置位置：向左移动4次，向下移动4次
+            const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
+            const moveDistance = maxDim * 0.1 * rotationSpeed;
+            model.position.set(-moveDistance * 4, -moveDistance * 4, 0);
             
             const feedback = document.createElement('div');
             feedback.style.cssText = `
@@ -1444,7 +1477,7 @@
                 pointer-events: none;
                 backdrop-filter: blur(10px);
             `;
-            feedback.textContent = '🔄 已重置旋转和位置';
+            feedback.textContent = '🔄 已重置到初始状态';
             
             document.body.appendChild(feedback);
             setTimeout(() => {
@@ -1633,7 +1666,7 @@
                     break;
                 // 颜色快捷键
                 case 'Digit1':
-                    changeColor('#ff6b6b');
+                    changeColor('#ff8c00'); // 金色
                     break;
                 case 'Digit2':
                     changeColor('#4ecdc4');
@@ -1643,6 +1676,9 @@
                     break;
                 case 'Digit4':
                     changeColor('#96ceb4');
+                    break;
+                case 'Digit5':
+                    changeColor('#FF6103'); // 橙色
                     break;
             }
         });
