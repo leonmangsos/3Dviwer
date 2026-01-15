@@ -410,25 +410,135 @@
             opacity: 0.7;
         }
 
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 10px;
+            right: 70px;
+            z-index: 150;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .mobile-toggle:hover {
+            background: rgba(0, 0, 0, 0.9);
+            transform: scale(1.1);
+        }
+
+        .hide-all-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 200;
+            background: rgba(220, 53, 69, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 18px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        .hide-all-toggle:hover {
+            background: rgba(220, 53, 69, 1);
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.5);
+        }
+
+        .hide-all-toggle.hidden-mode {
+            background: rgba(40, 167, 69, 0.8);
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+
+        .hide-all-toggle.hidden-mode:hover {
+            background: rgba(40, 167, 69, 1);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.5);
+        }
+
         /* 移动端适配 */
         @media (max-width: 768px) {
+            .mobile-toggle {
+                display: block;
+            }
+            
             .controls {
                 position: fixed;
-                bottom: 20px;
-                right: 20px;
+                bottom: 10px;
+                right: 10px;
                 top: auto;
-                min-width: 150px;
-                max-height: 60vh;
+                min-width: 120px;
+                max-width: 200px;
+                max-height: 40vh;
+                padding: 12px;
+                font-size: 11px;
+                transform: translateX(100%);
+                transition: transform 0.3s ease;
+            }
+            
+            .controls.show {
+                transform: translateX(0);
+            }
+            
+            .controls .control-group button {
+                padding: 6px 10px;
+                font-size: 10px;
+                margin-right: 3px;
+                margin-bottom: 3px;
             }
             
             .axis-controls {
                 left: 10px;
-                min-width: 100px;
-                padding: 15px;
+                min-width: 120px;
+                max-width: 180px;
+                padding: 12px;
+                max-height: 70vh;
+                overflow-y: auto;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+            
+            .axis-controls.show {
+                transform: translateX(0);
+            }
+            
+            .axis-btn {
+                padding: 8px 10px;
+                font-size: 12px;
+                min-height: 36px;
+            }
+            
+            .axis-group {
+                margin-bottom: 10px;
+            }
+            
+            .axis-label {
+                font-size: 10px;
+                margin-bottom: 5px;
+            }
+            
+            .header {
+                top: 10px;
+                left: 10px;
             }
             
             .header h1 {
-                font-size: 20px;
+                font-size: 18px;
+            }
+            
+            .header p {
+                font-size: 12px;
             }
             
             .instructions {
@@ -436,14 +546,44 @@
             }
             
             .file-upload {
-                padding: 20px;
-                max-width: 90%;
+                padding: 15px;
+                max-width: 95%;
+                margin: 10px;
+            }
+            
+            .file-upload h2 {
+                font-size: 20px;
+                margin-bottom: 15px;
+            }
+            
+            .file-upload p {
+                font-size: 14px;
+                margin-bottom: 15px;
+            }
+            
+            .file-input-button {
+                padding: 12px 20px;
+                font-size: 14px;
+            }
+            
+            .demo-button {
+                padding: 10px 18px;
+                font-size: 12px;
+                margin: 5px;
+            }
+            
+            /* 确保3D视图区域不被遮挡 */
+            #canvas-container {
+                padding-bottom: 80px; /* 为底部控制面板留出空间 */
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <button class="mobile-toggle" id="mobileToggle" onclick="toggleMobileControls()">⚙️</button>
+        <button class="hide-all-toggle" id="hideAllToggle" onclick="toggleHideAll()" title="隐藏/显示所有操作界面">✖️</button>
+        
         <div class="header">
             <h1>🚗 鹅伴小车 3D 模型</h1>
             <p>按键操控 | 移动端优化 | 6自由度控制</p>
@@ -603,6 +743,7 @@
                 <li>鼠标滚轮：缩放模型</li>
                 <li>双击：快速适应屏幕</li>
                 <li>T键：显示/隐藏模型控制</li>
+                <li>H键：隐藏/显示所有界面</li>
                 <li>Shift+R：重置位置和旋转</li>
             </ul>
         </div>
@@ -827,7 +968,7 @@
             );
         }
 
-        // 从几何体创建模型 - 优化缩放逻辑
+        // 从几何体创建模型 - 优化缩放逻辑和移动端适配
         function createModelFromGeometry(geometry) {
             // 清除现有模型
             if (model) {
@@ -863,9 +1004,15 @@
             // 将模型居中
             model.position.sub(modelCenter);
             
-            // 计算合适的相机距离
+            // 计算合适的相机距离 - 针对移动端优化
             const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
-            initialCameraDistance = maxDim * 2;
+            
+            // 检测是否为移动设备
+            const isMobile = window.innerWidth <= 768;
+            
+            // 移动端使用更大的距离倍数，确保模型不会太大
+            const distanceMultiplier = isMobile ? 3.5 : 2.5;
+            initialCameraDistance = maxDim * distanceMultiplier;
             
             // 设置相机参数
             camera.near = maxDim * 0.001;
@@ -873,8 +1020,8 @@
             camera.updateProjectionMatrix();
             
             // 设置控制器距离限制
-            controls.minDistance = maxDim * 0.1;
-            controls.maxDistance = maxDim * 10;
+            controls.minDistance = maxDim * 0.2;
+            controls.maxDistance = maxDim * 15;
             
             // 添加到场景
             scene.add(model);
@@ -888,15 +1035,22 @@
             console.log('模型加载成功');
             console.log('模型尺寸:', modelSize);
             console.log('初始相机距离:', initialCameraDistance);
+            console.log('移动端模式:', isMobile);
         }
 
-        // 适应屏幕 - 优化的缩放逻辑
+        // 适应屏幕 - 优化的缩放逻辑，移动端友好
         function fitToScreen() {
             if (!model) return;
             
             const maxDim = Math.max(modelSize.x, modelSize.y, modelSize.z);
             const fov = camera.fov * (Math.PI / 180);
-            const distance = maxDim / (2 * Math.tan(fov / 2)) * 1.2;
+            
+            // 检测移动设备
+            const isMobile = window.innerWidth <= 768;
+            
+            // 移动端使用更大的距离倍数，确保模型适中
+            const screenMultiplier = isMobile ? 1.8 : 1.2;
+            const distance = maxDim / (2 * Math.tan(fov / 2)) * screenMultiplier;
             
             // 设置相机位置
             const direction = camera.position.clone().normalize();
@@ -991,11 +1145,106 @@
             document.getElementById('controls').classList.remove('hidden');
             document.getElementById('instructions').classList.remove('hidden');
             
-            // 默认显示轴控制面板
-            document.getElementById('axis-controls').classList.remove('hidden');
-            const btn = document.getElementById('axisControlBtn');
-            btn.classList.add('active');
-            btn.textContent = '🎯 隐藏控制';
+            // 检测移动设备
+            const isMobile = window.innerWidth <= 768;
+            
+            if (isMobile) {
+                // 移动端：默认隐藏控制面板，显示切换按钮
+                document.getElementById('axis-controls').classList.add('hidden');
+                document.getElementById('controls').classList.add('hidden');
+            } else {
+                // 桌面端：默认显示轴控制面板
+                document.getElementById('axis-controls').classList.remove('hidden');
+                const btn = document.getElementById('axisControlBtn');
+                btn.classList.add('active');
+                btn.textContent = '🎯 隐藏控制';
+            }
+        }
+
+        // 移动端控制面板切换
+        let mobileControlsVisible = false;
+        function toggleMobileControls() {
+            const axisControls = document.getElementById('axis-controls');
+            const controls = document.getElementById('controls');
+            const toggleBtn = document.getElementById('mobileToggle');
+            
+            mobileControlsVisible = !mobileControlsVisible;
+            
+            if (mobileControlsVisible) {
+                axisControls.classList.remove('hidden');
+                axisControls.classList.add('show');
+                controls.classList.remove('hidden');
+                controls.classList.add('show');
+                toggleBtn.textContent = '✖️';
+                toggleBtn.style.background = 'rgba(255, 0, 0, 0.7)';
+            } else {
+                axisControls.classList.remove('show');
+                controls.classList.remove('show');
+                toggleBtn.textContent = '⚙️';
+                toggleBtn.style.background = 'rgba(0, 0, 0, 0.7)';
+                
+                // 延迟隐藏，等待动画完成
+                setTimeout(() => {
+                    if (!mobileControlsVisible) {
+                        axisControls.classList.add('hidden');
+                        controls.classList.add('hidden');
+                    }
+                }, 300);
+            }
+        }
+
+        // 一键隐藏所有操作界面
+        let allHidden = false;
+        function toggleHideAll() {
+            const axisControls = document.getElementById('axis-controls');
+            const controls = document.getElementById('controls');
+            const instructions = document.getElementById('instructions');
+            const zoomInfo = document.getElementById('zoom-info');
+            const mobileToggle = document.getElementById('mobileToggle');
+            const hideAllBtn = document.getElementById('hideAllToggle');
+            
+            allHidden = !allHidden;
+            
+            if (allHidden) {
+                // 隐藏所有操作界面
+                axisControls.classList.add('hidden');
+                controls.classList.add('hidden');
+                instructions.classList.add('hidden');
+                zoomInfo.classList.remove('show');
+                mobileToggle.style.display = 'none';
+                
+                // 更新按钮状态
+                hideAllBtn.classList.add('hidden-mode');
+                hideAllBtn.textContent = '🔙';
+                hideAllBtn.title = '显示所有操作界面';
+                
+                // 重置移动端控制状态
+                mobileControlsVisible = false;
+                
+                console.log('已隐藏所有操作界面，只保留标题');
+            } else {
+                // 显示所有操作界面
+                const isMobile = window.innerWidth <= 768;
+                
+                if (isMobile) {
+                    // 移动端：显示切换按钮，但控制面板保持隐藏状态
+                    mobileToggle.style.display = 'block';
+                } else {
+                    // 桌面端：直接显示控制面板
+                    axisControls.classList.remove('hidden');
+                    controls.classList.remove('hidden');
+                }
+                
+                instructions.classList.remove('hidden');
+                mobileToggle.style.display = isMobile ? 'block' : 'none';
+                
+                // 更新按钮状态
+                hideAllBtn.classList.remove('hidden-mode');
+                hideAllBtn.textContent = '✖️';
+                hideAllBtn.title = '隐藏所有操作界面';
+                
+                console.log('已显示所有操作界面');
+            }
         }
 
         // 切换轴控制面板显示
@@ -1221,6 +1470,25 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // 检测设备类型变化，重新调整控制面板
+            const isMobile = window.innerWidth <= 768;
+            const axisControls = document.getElementById('axis-controls');
+            const controls = document.getElementById('controls');
+            
+            if (isMobile) {
+                // 切换到移动端模式
+                if (!axisControls.classList.contains('hidden')) {
+                    mobileControlsVisible = false;
+                    toggleMobileControls();
+                }
+            } else {
+                // 切换到桌面模式
+                axisControls.classList.remove('hidden', 'show');
+                controls.classList.remove('hidden', 'show');
+                axisControls.style.transform = '';
+                controls.style.transform = '';
+            }
         }
 
         // 重置相机位置
@@ -1305,6 +1573,9 @@
                     break;
                 case 'KeyT':
                     toggleAxisControls();
+                    break;
+                case 'KeyH':
+                    toggleHideAll();
                     break;
                 case 'Equal':
                 case 'NumpadAdd':
